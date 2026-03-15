@@ -143,20 +143,28 @@ const DEFAULT_STORES = {
   store_1: { name: "My Safeway", size: "large", map: { ...DEFAULT_MAP } },
 };
 
-const systemPrompt = (store, storeMap) =>
-  `You are a grocery store assistant for a ${store.size === "small" ? "smaller neighborhood" : "full-size"} Safeway called "${store.name}".
+const systemPrompt = (store, storeMap) => {
+  const confirmed = Object.entries(storeMap).filter(([,v]) => v.confidence === "confirmed" || v.confidence === "custom");
+  const anchors = confirmed.length > 0
+    ? `\nConfirmed aisle anchors:\n${confirmed.map(([k,v]) => `  ${k} → ${v.zone}`).join("\n")}`
+    : "";
+  return `You are a grocery store assistant for a ${store.size === "small" ? "smaller neighborhood" : "full-size"} Safeway called "${store.name}".
 ${store.size === "small" ? "Note: smaller store — some specialty sections may be limited or combined." : ""}
 
 Store map ("confirmed" = user-verified; "typical" = general Safeway convention; "custom" = user-added):
 ${JSON.stringify(storeMap, null, 2)}
+${anchors}
 
 Rules:
 - Match the query to the closest key or category in the map
 - Prefer confirmed/custom entries over typical ones
-- Be concise — one short location description, plain language, no jargon
+- If the item is not confirmed but is typically found in the same zone as a confirmed item, use that confirmed aisle number as your answer and add a short note like "(same aisle as coffee)"
+- Be concise — one short location, plain language, no jargon
+- If you know a specific aisle number from confirmed data, always use it
 
 Respond ONLY as JSON, no markdown:
 {"aisle": "short location", "confidence": "confirmed|typical|guess", "note": "optional, omit if not useful"}`;
+};
 
 const badgeInfo = (c) => ({
   confirmed: { bg: "#2d6a4f", label: "✓ confirmed" },
@@ -536,32 +544,32 @@ function SafewayFinder() {
             )}
 
             {/* Actions */}
-            {!result.confirmed && !correcting && (
-              <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-                <button onClick={confirm} style={{
-                  flex: 1, background: C.confirmed, color: "#fff", border: "none",
-                  borderRadius: 10, padding: "15px 0", fontSize: 16, cursor: "pointer", fontWeight: 500,
-                }}>✓ That's right</button>
-                <button onClick={() => setCorrecting(true)} style={{
-                  flex: 1, background: C.secondaryBtn, color: C.secondaryBtnText,
-                  border: `1px solid ${C.border}`, borderRadius: 10,
-                  padding: "15px 0", fontSize: 16, cursor: "pointer",
-                }}>✎ Fix it</button>
-              </div>
-            )}
-
-            {correcting && (
-              <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 13, color: C.subtext, marginBottom: 8 }}>What's the correct location?</div>
-                <div style={{ display: "flex", gap: 8 }}>
+            {!result.confirmed && (
+              <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.borderLight}` }}>
+                <div style={{ fontSize: 12, color: C.subtext, marginBottom: 10, letterSpacing: "0.06em" }}>
+                  SAVE AISLE NUMBER
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 15, color: C.subtext, flexShrink: 0 }}>Aisle</span>
                   <input value={correction} onChange={(e) => setCorrection(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && submitCorrection()}
-                    placeholder="e.g. Aisle 7, left side" autoFocus
-                    style={{ flex: 1, border: `1px solid ${C.border}`, borderRadius: 8, padding: "13px 12px", fontSize: 15, background: C.inputBg, color: C.text }} />
-                  <button onClick={submitCorrection} style={{
-                    background: C.accent, color: "#fff", border: "none",
-                    borderRadius: 8, padding: "0 18px", fontSize: 15, cursor: "pointer",
+                    placeholder="7" inputMode="decimal"
+                    style={{
+                      width: 70, border: `1.5px solid ${C.border}`, borderRadius: 8,
+                      padding: "12px 10px", fontSize: 22, background: C.inputBg,
+                      color: C.text, textAlign: "center", fontFamily: "Georgia, serif",
+                    }} />
+                  <button onClick={submitCorrection} disabled={!correction.trim()} style={{
+                    background: correction.trim() ? C.confirmed : C.border,
+                    color: "#fff", border: "none", borderRadius: 8,
+                    padding: "12px 20px", fontSize: 15, cursor: correction.trim() ? "pointer" : "default",
+                    flex: 1,
                   }}>Save</button>
+                  <button onClick={confirm} style={{
+                    background: C.secondaryBtn, color: C.secondaryBtnText,
+                    border: `1px solid ${C.border}`, borderRadius: 8,
+                    padding: "12px 14px", fontSize: 13, cursor: "pointer", flexShrink: 0,
+                  }}>✓ Correct</button>
                 </div>
               </div>
             )}
