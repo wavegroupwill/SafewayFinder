@@ -2,24 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Safeway Finder</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="apple-touch-icon" href="/icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Safeway">
   <meta name="theme-color" content="#f5f0e8">
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; }
+    input, button, select { font-family: inherit; }
+    input:focus { outline: none; }
+    button:active { opacity: 0.75; }
+  </style>
 </head>
-<body style="margin:0">
-
+<body>
 <div id="root"></div>
 
 <script>
-  // localStorage shim matching window.storage API used in original artifact
   window.storage = {
     get: (key) => Promise.resolve({ value: localStorage.getItem(key) }),
     set: (key, value) => { localStorage.setItem(key, value); return Promise.resolve(); }
@@ -27,11 +32,31 @@
 </script>
 
 <script type="text/babel">
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
 
-const STORES_KEY = "safeway_stores_v1";
-const ACTIVE_KEY = "safeway_active_store_v1";
+const STORES_KEY  = "safeway_stores_v1";
+const ACTIVE_KEY  = "safeway_active_store_v1";
+const DARK_KEY    = "safeway_dark_v1";
 
+// ── Themes ──────────────────────────────────────────────────────────────────
+const LIGHT = {
+  bg: '#f5f0e8', card: '#fff', text: '#1a1a1a', subtext: '#999',
+  border: '#e0dbd0', borderLight: '#eee', accent: '#c0392b',
+  accentText: '#fff', confirmed: '#2d6a4f', custom: '#7b4fa6',
+  typical: '#4a7fa5', rowAlt: '#faf8f5', inputBg: '#fff',
+  pillBg: '#ede8df', placeholder: '#bbb', mutedBtn: '#888',
+  secondaryBtn: '#f0ece4', secondaryBtnText: '#555',
+};
+const DARK = {
+  bg: '#0f0f0f', card: '#1c1c1e', text: '#f0ece4', subtext: '#777',
+  border: '#2c2c2e', borderLight: '#252527', accent: '#e05a47',
+  accentText: '#fff', confirmed: '#3d9970', custom: '#9b6fd6',
+  typical: '#5a9fc5', rowAlt: '#161618', inputBg: '#1c1c1e',
+  pillBg: '#2c2c2e', placeholder: '#555', mutedBtn: '#666',
+  secondaryBtn: '#2c2c2e', secondaryBtnText: '#aaa',
+};
+
+// ── Default data ─────────────────────────────────────────────────────────────
 const DEFAULT_MAP = {
   "produce": { zone: "Perimeter — produce section (front/right)", confidence: "typical" },
   "fruits": { zone: "Perimeter — produce section", confidence: "typical" },
@@ -122,25 +147,26 @@ const systemPrompt = (store, storeMap) =>
   `You are a grocery store assistant for a ${store.size === "small" ? "smaller neighborhood" : "full-size"} Safeway called "${store.name}".
 ${store.size === "small" ? "Note: smaller store — some specialty sections may be limited or combined." : ""}
 
-Store map ("confirmed" = user-verified; "typical" = general Safeway convention; "custom" = user-added category):
+Store map ("confirmed" = user-verified; "typical" = general Safeway convention; "custom" = user-added):
 ${JSON.stringify(storeMap, null, 2)}
 
 Rules:
 - Match the query to the closest key or category in the map
 - Prefer confirmed/custom entries over typical ones
-- Be concise — one short location description
+- Be concise — one short location description, plain language, no jargon
 
 Respond ONLY as JSON, no markdown:
 {"aisle": "short location", "confidence": "confirmed|typical|guess", "note": "optional, omit if not useful"}`;
 
-const badge = (c) => ({
+const badgeInfo = (c) => ({
   confirmed: { bg: "#2d6a4f", label: "✓ confirmed" },
   custom:    { bg: "#7b4fa6", label: "★ custom" },
   typical:   { bg: "#4a7fa5", label: "~ typical" },
   guess:     { bg: "#888",    label: "? guess" },
 }[c] || { bg: "#888", label: "? guess" });
 
-function StoreModal({ stores, activeId, onSelect, onSave, onClose }) {
+// ── Store Modal ───────────────────────────────────────────────────────────────
+function StoreModal({ stores, activeId, onSelect, onSave, onClose, C }) {
   const [editId, setEditId] = useState(null);
   const [draft, setDraft] = useState({});
   const [newName, setNewName] = useState("");
@@ -157,35 +183,37 @@ function StoreModal({ stores, activeId, onSelect, onSave, onClose }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 6, width: "100%", maxWidth: 420, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden" }}>
-        <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 13, fontFamily: "monospace", letterSpacing: "0.12em", textTransform: "uppercase", color: "#555" }}>Your Stores</span>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, color: "#bbb", cursor: "pointer" }}>×</button>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 0 }}
+         onClick={onClose}>
+      <div style={{ background: C.card, borderRadius: "16px 16px 0 0", width: "100%", maxWidth: 500, boxShadow: "0 -4px 32px rgba(0,0,0,0.2)", paddingBottom: "env(safe-area-inset-bottom, 16px)" }}
+           onClick={e => e.stopPropagation()}>
+        <div style={{ padding: "20px 20px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>Manage Stores</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: C.subtext, cursor: "pointer", padding: "0 4px" }}>×</button>
         </div>
-        <div style={{ padding: "12px 20px" }}>
+        <div style={{ padding: "8px 20px", maxHeight: "60vh", overflowY: "auto" }}>
           {Object.entries(stores).map(([id, store]) => (
-            <div key={id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #f4f0ea" }}>
+            <div key={id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderBottom: `1px solid ${C.borderLight}` }}>
               {editId === id ? (
                 <>
                   <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                    style={{ flex: 1, border: "1px solid #ddd", borderRadius: 3, padding: "6px 10px", fontSize: 13, fontFamily: "Georgia, serif", outline: "none" }} />
+                    style={{ flex: 1, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 15, background: C.inputBg, color: C.text }} />
                   <select value={draft.size} onChange={(e) => setDraft({ ...draft, size: e.target.value })}
-                    style={{ border: "1px solid #ddd", borderRadius: 3, padding: "6px 8px", fontSize: 12, fontFamily: "monospace", outline: "none", background: "#fff" }}>
+                    style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 8px", fontSize: 13, background: C.inputBg, color: C.text }}>
                     <option value="large">large</option>
                     <option value="small">small</option>
                   </select>
-                  <button onClick={saveEdit} style={{ background: "#2d6a4f", color: "#fff", border: "none", borderRadius: 3, padding: "6px 12px", fontSize: 11, fontFamily: "monospace", cursor: "pointer" }}>SAVE</button>
+                  <button onClick={saveEdit} style={{ background: C.confirmed, color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, cursor: "pointer" }}>Save</button>
                 </>
               ) : (
                 <>
                   <button onClick={() => { onSelect(id); onClose(); }} style={{ flex: 1, background: "none", border: "none", textAlign: "left", cursor: "pointer", padding: 0 }}>
-                    <span style={{ fontSize: 15, fontFamily: "Georgia, serif", color: id === activeId ? "#c0392b" : "#1a1a1a" }}>
-                      {id === activeId ? "▸ " : "\u00a0\u00a0\u00a0"}{store.name}
+                    <span style={{ fontSize: 16, color: id === activeId ? C.accent : C.text }}>
+                      {id === activeId ? "▸ " : "\u00a0\u00a0"}{store.name}
                     </span>
-                    <span style={{ marginLeft: 8, fontSize: 9, fontFamily: "monospace", color: "#bbb", background: "#f5f0e8", padding: "2px 6px", borderRadius: 8 }}>{store.size}</span>
+                    <span style={{ marginLeft: 8, fontSize: 11, color: C.subtext, background: C.pillBg, padding: "2px 8px", borderRadius: 8 }}>{store.size}</span>
                   </button>
-                  <button onClick={() => startEdit(id)} style={{ background: "none", border: "1px solid #eee", borderRadius: 3, padding: "4px 10px", fontSize: 11, fontFamily: "monospace", color: "#aaa", cursor: "pointer" }}>edit</button>
+                  <button onClick={() => startEdit(id)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, color: C.subtext, cursor: "pointer" }}>edit</button>
                 </>
               )}
             </div>
@@ -195,27 +223,25 @@ function StoreModal({ stores, activeId, onSelect, onSave, onClose }) {
               <input value={newName} onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addStore()}
                 placeholder="Store name…" autoFocus
-                style={{ flex: 1, border: "1px solid #ddd", borderRadius: 3, padding: "7px 10px", fontSize: 13, fontFamily: "Georgia, serif", outline: "none" }} />
+                style={{ flex: 1, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 15, background: C.inputBg, color: C.text }} />
               <select value={newSize} onChange={(e) => setNewSize(e.target.value)}
-                style={{ border: "1px solid #ddd", borderRadius: 3, padding: "7px 8px", fontSize: 12, fontFamily: "monospace", outline: "none", background: "#fff" }}>
+                style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 8px", fontSize: 13, background: C.inputBg, color: C.text }}>
                 <option value="large">large</option>
                 <option value="small">small</option>
               </select>
-              <button onClick={addStore} style={{ background: "#c0392b", color: "#fff", border: "none", borderRadius: 3, padding: "7px 12px", fontSize: 11, fontFamily: "monospace", cursor: "pointer" }}>ADD</button>
+              <button onClick={addStore} style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, cursor: "pointer" }}>Add</button>
             </div>
           ) : (
-            <button onClick={() => setAdding(true)} style={{ marginTop: 12, background: "none", border: "1px dashed #ddd", borderRadius: 3, width: "100%", padding: "9px 0", fontSize: 12, fontFamily: "monospace", color: "#bbb", cursor: "pointer" }}>+ add another store</button>
+            <button onClick={() => setAdding(true)} style={{ marginTop: 12, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, width: "100%", padding: "12px 0", fontSize: 14, color: C.subtext, cursor: "pointer" }}>+ add store</button>
           )}
-        </div>
-        <div style={{ padding: "8px 20px 16px" }}>
-          <p style={{ fontSize: 10, fontFamily: "monospace", color: "#ccc", margin: 0, lineHeight: 1.6 }}>Each store has its own independent map.</p>
         </div>
       </div>
     </div>
   );
 }
 
-function AddCategoryPanel({ onAdd }) {
+// ── Add Category Panel ────────────────────────────────────────────────────────
+function AddCategoryPanel({ onAdd, C }) {
   const [open, setOpen] = useState(false);
   const [cat, setCat] = useState("");
   const [loc, setLoc] = useState("");
@@ -226,54 +252,58 @@ function AddCategoryPanel({ onAdd }) {
     setCat(""); setLoc(""); setOpen(false);
   };
 
+  if (!open) return (
+    <button onClick={() => setOpen(true)} style={{
+      background: "none", border: `1.5px dashed ${C.border}`, borderRadius: 10,
+      width: "100%", padding: "14px 0", fontSize: 14, color: C.subtext, cursor: "pointer",
+    }}>+ teach this store a new location</button>
+  );
+
   return (
-    <div style={{ width: "100%", maxWidth: 500, marginTop: 20 }}>
-      {!open ? (
-        <button onClick={() => setOpen(true)} style={{
-          background: "none", border: "1.5px dashed #d0c8bc", borderRadius: 4,
-          width: "100%", padding: "11px 0", fontSize: 12, fontFamily: "monospace",
-          color: "#bbb", letterSpacing: "0.1em", cursor: "pointer",
-        }}>+ add custom category</button>
-      ) : (
-        <div style={{ background: "#fff", border: "1.5px solid #ddd", borderRadius: 4, padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
-          <div style={{ fontSize: 10, fontFamily: "monospace", color: "#bbb", letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 12 }}>Add custom category</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <input value={cat} onChange={(e) => setCat(e.target.value)}
-              placeholder="Category name  (e.g. vegan options, gluten-free, kombucha)"
-              style={{ border: "1px solid #ddd", borderRadius: 3, padding: "9px 12px", fontSize: 14, fontFamily: "Georgia, serif", outline: "none", color: "#1a1a1a" }} />
-            <input value={loc} onChange={(e) => setLoc(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submit()}
-              placeholder="Location  (e.g. Aisle 6, Natural foods end cap)"
-              style={{ border: "1px solid #ddd", borderRadius: 3, padding: "9px 12px", fontSize: 14, fontFamily: "Georgia, serif", outline: "none", color: "#1a1a1a" }} />
-            <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
-              <button onClick={submit} disabled={!cat.trim() || !loc.trim()} style={{
-                flex: 1, background: "#7b4fa6", color: "#fff", border: "none",
-                borderRadius: 3, padding: "9px 0", fontSize: 11, fontFamily: "monospace",
-                letterSpacing: "0.1em", cursor: "pointer", opacity: (!cat.trim() || !loc.trim()) ? 0.4 : 1,
-              }}>★ SAVE TO THIS STORE</button>
-              <button onClick={() => { setOpen(false); setCat(""); setLoc(""); }} style={{
-                background: "#fff", color: "#aaa", border: "1px solid #ddd",
-                borderRadius: 3, padding: "9px 14px", fontSize: 11, fontFamily: "monospace", cursor: "pointer",
-              }}>cancel</button>
-            </div>
-          </div>
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
+      <div style={{ fontSize: 12, color: C.subtext, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>New location</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <input value={cat} onChange={(e) => setCat(e.target.value)}
+          placeholder="Item or category (e.g. kombucha, vegan cheese)"
+          style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "13px 14px", fontSize: 15, background: C.inputBg, color: C.text }} />
+        <input value={loc} onChange={(e) => setLoc(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="Where is it? (e.g. Aisle 6, Natural foods)"
+          style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "13px 14px", fontSize: 15, background: C.inputBg, color: C.text }} />
+        <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+          <button onClick={submit} disabled={!cat.trim() || !loc.trim()} style={{
+            flex: 1, background: C.custom, color: "#fff", border: "none",
+            borderRadius: 8, padding: "13px 0", fontSize: 15, cursor: "pointer",
+            opacity: (!cat.trim() || !loc.trim()) ? 0.4 : 1,
+          }}>★ Save to this store</button>
+          <button onClick={() => { setOpen(false); setCat(""); setLoc(""); }} style={{
+            background: C.secondaryBtn, color: C.secondaryBtnText, border: "none",
+            borderRadius: 8, padding: "13px 18px", fontSize: 15, cursor: "pointer",
+          }}>Cancel</button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
+// ── Main App ──────────────────────────────────────────────────────────────────
 function SafewayFinder() {
-  const [stores, setStores] = useState(null);
-  const [activeId, setActiveId] = useState("store_1");
-  const [query, setQuery] = useState("");
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [stores, setStores]       = useState(null);
+  const [activeId, setActiveId]   = useState("store_1");
+  const [query, setQuery]         = useState("");
+  const [result, setResult]       = useState(null);
+  const [loading, setLoading]     = useState(false);
   const [correcting, setCorrecting] = useState(false);
   const [correction, setCorrection] = useState("");
-  const [showMap, setShowMap] = useState(false);
-  const [tab, setTab] = useState("confirmed");
+  const [showMap, setShowMap]     = useState(false);
+  const [tab, setTab]             = useState("confirmed");
   const [showModal, setShowModal] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [dark, setDark]           = useState(() => localStorage.getItem(DARK_KEY) === "1");
+
+  const C = dark ? DARK : LIGHT;
+  const dropdownRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -287,6 +317,21 @@ function SafewayFinder() {
     })();
   }, []);
 
+  // Close dropdown on outside tap
+  useEffect(() => {
+    if (!showDropdown) return;
+    const handler = (e) => { if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setShowDropdown(false); };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => { document.removeEventListener("mousedown", handler); document.removeEventListener("touchstart", handler); };
+  }, [showDropdown]);
+
+  const toggleDark = () => {
+    const next = !dark;
+    setDark(next);
+    localStorage.setItem(DARK_KEY, next ? "1" : "0");
+  };
+
   const persist = async (updatedStores, newActiveId) => {
     setStores(updatedStores);
     try {
@@ -295,7 +340,11 @@ function SafewayFinder() {
     } catch (_) {}
   };
 
-  const switchStore = (id) => { setActiveId(id); setResult(null); setQuery(""); window.storage.set(ACTIVE_KEY, id).catch(() => {}); };
+  const switchStore = (id) => {
+    setActiveId(id); setResult(null); setQuery("");
+    window.storage.set(ACTIVE_KEY, id).catch(() => {});
+    setShowDropdown(false);
+  };
 
   const handleSaveStore = (id, name, size, isNew = false) => {
     const updated = { ...stores };
@@ -332,7 +381,7 @@ function SafewayFinder() {
       const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
       setResult({ item: query, ...parsed });
     } catch {
-      setResult({ item: query, aisle: "Something went wrong", confidence: "guess" });
+      setResult({ item: query, aisle: "Something went wrong — try again", confidence: "guess" });
     }
     setLoading(false);
   };
@@ -351,7 +400,11 @@ function SafewayFinder() {
     setCorrecting(false); setCorrection("");
   };
 
-  if (!stores) return <div style={{ minHeight: "100vh", background: "#f5f0e8", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "monospace", color: "#aaa" }}>Loading…</div>;
+  if (!stores) return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", color: C.subtext, fontSize: 16 }}>
+      Loading…
+    </div>
+  );
 
   const activeStore = stores[activeId];
   const storeMap = activeStore.map;
@@ -361,115 +414,206 @@ function SafewayFinder() {
   const tabEntries = { confirmed: confirmedEntries, custom: customEntries, typical: typicalEntries };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f5f0e8", fontFamily: "Georgia, 'Times New Roman', serif", display: "flex", flexDirection: "column", alignItems: "center", padding: "0 16px 80px" }}>
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, display: "flex", flexDirection: "column", alignItems: "center", paddingBottom: 60 }}>
 
-      {showModal && <StoreModal stores={stores} activeId={activeId} onSelect={switchStore} onSave={handleSaveStore} onClose={() => setShowModal(false)} />}
+      {showModal && <StoreModal stores={stores} activeId={activeId} onSelect={switchStore} onSave={handleSaveStore} onClose={() => setShowModal(false)} C={C} />}
 
-      <div style={{ width: "100%", maxWidth: 500, paddingTop: 44, paddingBottom: 18 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
-          <span style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "#aaa", fontFamily: "monospace" }}>SAFEWAY</span>
-          <span style={{ color: "#ddd", fontSize: 10 }}>•</span>
-          <span style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c0392b", fontFamily: "monospace" }}>item finder</span>
+      {/* Header */}
+      <div style={{ width: "100%", maxWidth: 500, padding: "56px 20px 0" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", color: C.subtext }}>SAFEWAY</span>
+            <span style={{ color: C.border, fontSize: 10 }}>•</span>
+            <span style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: C.accent }}>ITEM FINDER</span>
+          </div>
+          <button onClick={toggleDark} style={{
+            background: C.pillBg, border: "none", borderRadius: 20,
+            padding: "6px 14px", fontSize: 12, color: C.subtext, cursor: "pointer",
+          }}>{dark ? "☀ light" : "◑ dark"}</button>
         </div>
-        <h1 style={{ fontSize: 30, fontWeight: "normal", margin: "0 0 10px", color: "#1a1a1a", letterSpacing: "-0.02em" }}>Where is it?</h1>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          {Object.entries(stores).map(([id, store]) => (
-            <button key={id} onClick={() => switchStore(id)} style={{
-              background: id === activeId ? "#1a1a1a" : "#fff",
-              color: id === activeId ? "#fff" : "#666",
-              border: id === activeId ? "1.5px solid #1a1a1a" : "1.5px solid #ddd",
-              borderRadius: 20, padding: "5px 14px", fontSize: 12, fontFamily: "monospace",
-              cursor: "pointer", display: "flex", alignItems: "center", gap: 6, transition: "all 0.12s",
+
+        <h1 style={{ fontSize: 34, fontWeight: 300, margin: "6px 0 20px", color: C.text, letterSpacing: "-0.02em", fontFamily: "Georgia, serif" }}>
+          Where is it?
+        </h1>
+
+        {/* Store switcher */}
+        <div style={{ position: "relative" }} ref={dropdownRef}>
+          <button onClick={() => setShowDropdown(v => !v)} style={{
+            width: "100%", background: C.card, border: `1.5px solid ${C.border}`,
+            borderRadius: 10, padding: "14px 16px", fontSize: 16,
+            color: C.text, cursor: "pointer", display: "flex",
+            justifyContent: "space-between", alignItems: "center",
+            fontFamily: "Georgia, serif",
+          }}>
+            <span>{activeStore.name}</span>
+            <span style={{ fontSize: 12, color: C.subtext }}>{showDropdown ? "▲" : "▼"}</span>
+          </button>
+
+          {showDropdown && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
+              background: C.card, border: `1px solid ${C.border}`, borderRadius: 10,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.15)", zIndex: 50, overflow: "hidden",
             }}>
-              {store.name}
-              <span style={{ fontSize: 9, background: id === activeId ? "rgba(255,255,255,0.2)" : "#f0ece4", color: id === activeId ? "rgba(255,255,255,0.8)" : "#bbb", padding: "1px 5px", borderRadius: 8 }}>{store.size}</span>
-            </button>
-          ))}
-          <button onClick={() => setShowModal(true)} style={{ background: "none", border: "1.5px dashed #ddd", borderRadius: 20, padding: "5px 12px", fontSize: 11, fontFamily: "monospace", color: "#ccc", cursor: "pointer" }}>⚙ manage</button>
+              {Object.entries(stores).map(([id, store]) => (
+                <button key={id} onClick={() => switchStore(id)} style={{
+                  width: "100%", background: id === activeId ? C.pillBg : "none",
+                  border: "none", borderBottom: `1px solid ${C.borderLight}`,
+                  padding: "14px 16px", fontSize: 16, color: id === activeId ? C.accent : C.text,
+                  cursor: "pointer", textAlign: "left", display: "flex",
+                  alignItems: "center", justifyContent: "space-between",
+                  fontFamily: "Georgia, serif",
+                }}>
+                  <span>{id === activeId ? "▸ " : "\u00a0\u00a0"}{store.name}</span>
+                  <span style={{ fontSize: 11, color: C.subtext, background: C.pillBg, padding: "2px 8px", borderRadius: 8 }}>{store.size}</span>
+                </button>
+              ))}
+              <button onClick={() => { setShowDropdown(false); setShowModal(true); }} style={{
+                width: "100%", background: "none", border: "none",
+                padding: "12px 16px", fontSize: 13, color: C.subtext,
+                cursor: "pointer", textAlign: "left",
+              }}>⚙ manage stores</button>
+            </div>
+          )}
         </div>
-        <p style={{ fontSize: 11, color: "#bbb", marginTop: 8, fontFamily: "monospace" }}>
+
+        {/* Stats line */}
+        <p style={{ fontSize: 12, color: C.subtext, marginTop: 8, marginBottom: 0 }}>
           {confirmedEntries.length + customEntries.length > 0
             ? `${confirmedEntries.length} confirmed · ${customEntries.length} custom · ${typicalEntries.length} defaults`
-            : `${typicalEntries.length} Safeway defaults loaded`}
+            : `${typicalEntries.length} default locations loaded`}
         </p>
       </div>
 
-      <div style={{ width: "100%", maxWidth: 500 }}>
-        <div style={{ display: "flex", gap: 8, background: "#fff", border: "1.5px solid #ddd", borderRadius: 4, padding: "4px 4px 4px 14px", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
-          <input value={query} onChange={(e) => setQuery(e.target.value)}
+      {/* Search */}
+      <div style={{ width: "100%", maxWidth: 500, padding: "20px 20px 0" }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && search()}
-            placeholder={`search ${activeStore.name}…`}
-            style={{ flex: 1, border: "none", outline: "none", fontSize: 16, background: "transparent", color: "#1a1a1a", fontFamily: "Georgia, serif", padding: "8px 0" }} />
+            placeholder="Search for any item…"
+            style={{
+              flex: 1, border: `1.5px solid ${C.border}`, borderRadius: 10,
+              padding: "16px 16px", fontSize: 18, background: C.inputBg,
+              color: C.text,
+            }}
+          />
           <button onClick={search} disabled={loading || !query.trim()} style={{
-            background: loading ? "#ddd" : "#c0392b", color: "#fff", border: "none",
-            borderRadius: 3, padding: "10px 18px", fontSize: 11, fontFamily: "monospace",
-            letterSpacing: "0.1em", cursor: loading ? "default" : "pointer",
+            background: loading ? C.border : C.accent, color: C.accentText,
+            border: "none", borderRadius: 10, padding: "0 22px",
+            fontSize: 15, letterSpacing: "0.08em", cursor: loading ? "default" : "pointer",
+            fontWeight: 600, minWidth: 80,
           }}>{loading ? "…" : "FIND"}</button>
         </div>
       </div>
 
+      {/* Result */}
       {result && (
-        <div style={{ width: "100%", maxWidth: 500, marginTop: 14, background: "#fff", border: "1.5px solid #ddd", borderRadius: 4, padding: "20px 20px 16px", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 10, fontFamily: "monospace", color: "#bbb", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>{result.item}</div>
-              <div style={{ fontSize: 20, color: "#1a1a1a", lineHeight: 1.4 }}>{result.aisle}</div>
-              {result.note && <div style={{ fontSize: 11, color: "#bbb", marginTop: 5, fontFamily: "monospace" }}>{result.note}</div>}
+        <div style={{ width: "100%", maxWidth: 500, padding: "16px 20px 0" }}>
+          <div style={{ background: C.card, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: "22px 20px 18px" }}>
+
+            {/* Item label + badge */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: C.subtext }}>{result.item}</span>
+              <span style={{
+                background: badgeInfo(result.confirmed ? "confirmed" : result.confidence).bg,
+                color: "#fff", fontSize: 11, letterSpacing: "0.06em",
+                padding: "4px 10px", borderRadius: 4,
+              }}>
+                {badgeInfo(result.confirmed ? "confirmed" : result.confidence).label}
+              </span>
             </div>
-            <span style={{ background: badge(result.confirmed ? "confirmed" : result.confidence).bg, color: "#fff", fontSize: 10, fontFamily: "monospace", letterSpacing: "0.08em", padding: "4px 8px", borderRadius: 2, whiteSpace: "nowrap", marginTop: 2, flexShrink: 0 }}>
-              {badge(result.confirmed ? "confirmed" : result.confidence).label}
-            </span>
-          </div>
-          {!result.confirmed && !correcting && (
-            <div style={{ display: "flex", gap: 8, marginTop: 16, paddingTop: 14, borderTop: "1px solid #eee" }}>
-              <button onClick={confirm} style={{ flex: 1, background: "#2d6a4f", color: "#fff", border: "none", borderRadius: 3, padding: "9px 0", fontSize: 11, fontFamily: "monospace", letterSpacing: "0.1em", cursor: "pointer" }}>✓ CORRECT</button>
-              <button onClick={() => setCorrecting(true)} style={{ flex: 1, background: "#fff", color: "#888", border: "1px solid #ddd", borderRadius: 3, padding: "9px 0", fontSize: 11, fontFamily: "monospace", letterSpacing: "0.1em", cursor: "pointer" }}>✎ FIX IT</button>
+
+            {/* Aisle — the hero text */}
+            <div style={{ fontSize: 28, color: C.text, lineHeight: 1.3, marginBottom: result.note ? 8 : 0, fontFamily: "Georgia, serif" }}>
+              {result.aisle}
             </div>
-          )}
-          {correcting && (
-            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #eee" }}>
-              <div style={{ fontSize: 11, fontFamily: "monospace", color: "#aaa", marginBottom: 6 }}>What's the actual aisle?</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input value={correction} onChange={(e) => setCorrection(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && submitCorrection()}
-                  placeholder="e.g. Aisle 7" autoFocus
-                  style={{ flex: 1, border: "1px solid #ddd", borderRadius: 3, padding: "8px 10px", fontSize: 14, fontFamily: "Georgia, serif", outline: "none", color: "#1a1a1a" }} />
-                <button onClick={submitCorrection} style={{ background: "#c0392b", color: "#fff", border: "none", borderRadius: 3, padding: "8px 14px", fontSize: 11, fontFamily: "monospace", cursor: "pointer" }}>SAVE</button>
+
+            {result.note && (
+              <div style={{ fontSize: 13, color: C.subtext, marginTop: 6 }}>{result.note}</div>
+            )}
+
+            {/* Actions */}
+            {!result.confirmed && !correcting && (
+              <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+                <button onClick={confirm} style={{
+                  flex: 1, background: C.confirmed, color: "#fff", border: "none",
+                  borderRadius: 10, padding: "15px 0", fontSize: 16, cursor: "pointer", fontWeight: 500,
+                }}>✓ That's right</button>
+                <button onClick={() => setCorrecting(true)} style={{
+                  flex: 1, background: C.secondaryBtn, color: C.secondaryBtnText,
+                  border: `1px solid ${C.border}`, borderRadius: 10,
+                  padding: "15px 0", fontSize: 16, cursor: "pointer",
+                }}>✎ Fix it</button>
               </div>
-            </div>
-          )}
-          {result.confirmed && <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #eee", fontSize: 11, fontFamily: "monospace", color: "#2d6a4f" }}>Saved to {activeStore.name}.</div>}
+            )}
+
+            {correcting && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 13, color: C.subtext, marginBottom: 8 }}>What's the correct location?</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input value={correction} onChange={(e) => setCorrection(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && submitCorrection()}
+                    placeholder="e.g. Aisle 7, left side" autoFocus
+                    style={{ flex: 1, border: `1px solid ${C.border}`, borderRadius: 8, padding: "13px 12px", fontSize: 15, background: C.inputBg, color: C.text }} />
+                  <button onClick={submitCorrection} style={{
+                    background: C.accent, color: "#fff", border: "none",
+                    borderRadius: 8, padding: "0 18px", fontSize: 15, cursor: "pointer",
+                  }}>Save</button>
+                </div>
+              </div>
+            )}
+
+            {result.confirmed && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.borderLight}`, fontSize: 13, color: C.confirmed }}>
+                Saved to {activeStore.name}.
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      <AddCategoryPanel onAdd={handleAddCustom} />
+      {/* Secondary actions */}
+      <div style={{ width: "100%", maxWidth: 500, padding: "24px 20px 0", display: "flex", flexDirection: "column", gap: 12 }}>
+        <AddCategoryPanel onAdd={handleAddCustom} C={C} />
 
-      <div style={{ width: "100%", maxWidth: 500, marginTop: 24 }}>
-        <button onClick={() => setShowMap((v) => !v)} style={{ background: "none", border: "none", fontSize: 11, fontFamily: "monospace", color: "#ccc", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>
+        <button onClick={() => setShowMap(v => !v)} style={{
+          background: "none", border: "none", fontSize: 13, color: C.subtext,
+          cursor: "pointer", padding: "8px 0", textAlign: "left",
+          letterSpacing: "0.08em",
+        }}>
           {showMap ? "▲ hide" : "▼ show"} {activeStore.name} map
         </button>
+
         {showMap && (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ display: "flex", gap: 2, marginBottom: 8, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
               {[["confirmed", `✓ confirmed (${confirmedEntries.length})`], ["custom", `★ custom (${customEntries.length})`], ["typical", `~ defaults (${typicalEntries.length})`]].map(([key, label]) => (
                 <button key={key} onClick={() => setTab(key)} style={{
-                  background: tab === key ? "#1a1a1a" : "#fff",
-                  color: tab === key ? "#fff" : "#999",
-                  border: "1px solid #ddd", borderRadius: 3, padding: "5px 12px",
-                  fontSize: 11, fontFamily: "monospace", letterSpacing: "0.08em", cursor: "pointer",
+                  background: tab === key ? C.text : C.card,
+                  color: tab === key ? C.bg : C.subtext,
+                  border: `1px solid ${C.border}`, borderRadius: 6,
+                  padding: "6px 12px", fontSize: 12, cursor: "pointer",
                 }}>{label}</button>
               ))}
             </div>
-            <div style={{ border: "1px solid #e8e3d8", borderRadius: 4, overflow: "hidden", background: "#fff" }}>
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
               {tabEntries[tab].sort(([a],[b]) => a.localeCompare(b)).map(([item, data], i) => (
-                <div key={item} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "8px 14px", gap: 12, background: i % 2 === 0 ? "#fff" : "#faf8f5", borderBottom: "1px solid #f0ece4", fontSize: 12, fontFamily: "monospace" }}>
-                  <span style={{ color: "#555", flexShrink: 0 }}>{item}</span>
-                  <span style={{ color: "#aaa", textAlign: "right" }}>{data.zone}</span>
+                <div key={item} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+                  padding: "10px 14px", gap: 12,
+                  background: i % 2 === 0 ? C.card : C.rowAlt,
+                  borderBottom: `1px solid ${C.borderLight}`, fontSize: 13,
+                }}>
+                  <span style={{ color: C.text, flexShrink: 0 }}>{item}</span>
+                  <span style={{ color: C.subtext, textAlign: "right" }}>{data.zone}</span>
                 </div>
               ))}
               {tabEntries[tab].length === 0 && (
-                <div style={{ padding: "16px 14px", color: "#ccc", fontSize: 12, fontFamily: "monospace" }}>
-                  {tab === "confirmed" ? "No confirmed aisles yet." : tab === "custom" ? "No custom categories yet." : "No defaults."}
+                <div style={{ padding: "16px 14px", color: C.subtext, fontSize: 13 }}>
+                  {tab === "confirmed" ? "No confirmed locations yet — search and confirm as you shop." : tab === "custom" ? "No custom categories yet." : "No defaults."}
                 </div>
               )}
             </div>
