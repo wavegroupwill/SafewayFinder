@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Safeway Finder</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Safeway">
+  <meta name="theme-color" content="#f5f0e8">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body style="margin:0">
+
+<div id="root"></div>
+
+<script>
+  // localStorage shim matching window.storage API used in original artifact
+  window.storage = {
+    get: (key) => Promise.resolve({ value: localStorage.getItem(key) }),
+    set: (key, value) => { localStorage.setItem(key, value); return Promise.resolve(); }
+  };
+</script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const STORES_KEY = "safeway_stores_v1";
+const ACTIVE_KEY = "safeway_active_store_v1";
+
+const DEFAULT_MAP = {
+  "produce": { zone: "Perimeter — produce section (front/right)", confidence: "typical" },
+  "fruits": { zone: "Perimeter — produce section", confidence: "typical" },
+  "vegetables": { zone: "Perimeter — produce section", confidence: "typical" },
+  "salad": { zone: "Perimeter — produce section", confidence: "typical" },
+  "fresh herbs": { zone: "Perimeter — produce section", confidence: "typical" },
+  "meat": { zone: "Perimeter — meat/seafood (back wall)", confidence: "typical" },
+  "seafood": { zone: "Perimeter — meat/seafood (back wall)", confidence: "typical" },
+  "poultry": { zone: "Perimeter — meat/seafood (back wall)", confidence: "typical" },
+  "deli": { zone: "Perimeter — deli counter", confidence: "typical" },
+  "cheese": { zone: "Perimeter — deli/cheese section", confidence: "typical" },
+  "milk": { zone: "Perimeter — back wall (dairy)", confidence: "typical" },
+  "eggs": { zone: "Perimeter — back wall (dairy)", confidence: "typical" },
+  "yogurt": { zone: "Perimeter — back wall (dairy)", confidence: "typical" },
+  "butter": { zone: "Perimeter — back wall (dairy)", confidence: "typical" },
+  "cream cheese": { zone: "Perimeter — back wall (dairy)", confidence: "typical" },
+  "sour cream": { zone: "Perimeter — back wall (dairy)", confidence: "typical" },
+  "bread": { zone: "Perimeter — bakery (front of store)", confidence: "typical" },
+  "bakery": { zone: "Perimeter — bakery (front of store)", confidence: "typical" },
+  "flowers": { zone: "Perimeter — floral (near entrance)", confidence: "typical" },
+  "pharmacy": { zone: "Perimeter — pharmacy (back corner)", confidence: "typical" },
+  "cereal": { zone: "Center aisles — breakfast aisle", confidence: "typical" },
+  "oatmeal": { zone: "Center aisles — breakfast aisle", confidence: "typical" },
+  "coffee": { zone: "Center aisles — breakfast aisle", confidence: "typical" },
+  "tea": { zone: "Center aisles — breakfast aisle", confidence: "typical" },
+  "pancake mix": { zone: "Center aisles — breakfast aisle", confidence: "typical" },
+  "syrup": { zone: "Center aisles — breakfast aisle", confidence: "typical" },
+  "jams": { zone: "Center aisles — breakfast/spreads aisle", confidence: "typical" },
+  "peanut butter": { zone: "Center aisles — breakfast/spreads aisle", confidence: "typical" },
+  "pasta": { zone: "Center aisles — pasta & international aisle", confidence: "typical" },
+  "pasta sauce": { zone: "Center aisles — pasta & international aisle", confidence: "typical" },
+  "rice": { zone: "Center aisles — pasta & international aisle", confidence: "typical" },
+  "asian foods": { zone: "Center aisles — pasta & international aisle", confidence: "typical" },
+  "hispanic foods": { zone: "Center aisles — pasta & international aisle", confidence: "typical" },
+  "canned goods": { zone: "Center aisles — cans & condiments", confidence: "typical" },
+  "soup": { zone: "Center aisles — cans & condiments", confidence: "typical" },
+  "canned fruit": { zone: "Center aisles — cans & condiments", confidence: "typical" },
+  "condiments": { zone: "Center aisles — cans & condiments", confidence: "typical" },
+  "salad dressing": { zone: "Center aisles — cans & condiments", confidence: "typical" },
+  "pickles": { zone: "Center aisles — cans & condiments", confidence: "typical" },
+  "baking supplies": { zone: "Center aisles — baking aisle", confidence: "typical" },
+  "flour": { zone: "Center aisles — baking aisle", confidence: "typical" },
+  "sugar": { zone: "Center aisles — baking aisle", confidence: "typical" },
+  "cooking oil": { zone: "Center aisles — baking aisle", confidence: "typical" },
+  "spices": { zone: "Center aisles — spices & baking", confidence: "typical" },
+  "chips": { zone: "Center aisles — snacks aisle", confidence: "typical" },
+  "salsa": { zone: "Center aisles — snacks aisle", confidence: "typical" },
+  "popcorn": { zone: "Center aisles — snacks aisle", confidence: "typical" },
+  "nuts": { zone: "Center aisles — snacks aisle", confidence: "typical" },
+  "dried fruit": { zone: "Center aisles — snacks aisle", confidence: "typical" },
+  "candy": { zone: "Center aisles — snacks (or end cap near checkout)", confidence: "typical" },
+  "crackers": { zone: "Center aisles — snacks & cookies", confidence: "typical" },
+  "cookies": { zone: "Center aisles — snacks & cookies", confidence: "typical" },
+  "soda": { zone: "Center aisles — beverages aisle", confidence: "typical" },
+  "juice": { zone: "Center aisles — beverages aisle", confidence: "typical" },
+  "water": { zone: "Center aisles — beverages aisle", confidence: "typical" },
+  "beer": { zone: "Center aisles — beverages or liquor aisle", confidence: "typical" },
+  "wine": { zone: "Center aisles — wine aisle", confidence: "typical" },
+  "baby food": { zone: "Center aisles — baby aisle", confidence: "typical" },
+  "diapers": { zone: "Center aisles — baby aisle", confidence: "typical" },
+  "pet food": { zone: "Center aisles — pet aisle", confidence: "typical" },
+  "dog food": { zone: "Center aisles — pet aisle", confidence: "typical" },
+  "cat food": { zone: "Center aisles — pet aisle", confidence: "typical" },
+  "laundry detergent": { zone: "Center aisles — household/cleaning", confidence: "typical" },
+  "cleaning supplies": { zone: "Center aisles — household/cleaning", confidence: "typical" },
+  "dish soap": { zone: "Center aisles — household/cleaning", confidence: "typical" },
+  "light bulbs": { zone: "Center aisles — household/cleaning", confidence: "typical" },
+  "paper towels": { zone: "Center aisles — paper goods aisle", confidence: "typical" },
+  "toilet paper": { zone: "Center aisles — paper goods aisle", confidence: "typical" },
+  "trash bags": { zone: "Center aisles — paper goods aisle", confidence: "typical" },
+  "greeting cards": { zone: "Center aisles — cards & stationery", confidence: "typical" },
+  "vitamins": { zone: "Center aisles — health & wellness", confidence: "typical" },
+  "pain relief": { zone: "Center aisles — health & wellness (near pharmacy)", confidence: "typical" },
+  "first aid": { zone: "Center aisles — health & wellness (near pharmacy)", confidence: "typical" },
+  "shampoo": { zone: "Center aisles — personal care aisle", confidence: "typical" },
+  "toothpaste": { zone: "Center aisles — personal care aisle", confidence: "typical" },
+  "frozen meals": { zone: "Frozen section — center back", confidence: "typical" },
+  "frozen pizza": { zone: "Frozen section — center back", confidence: "typical" },
+  "frozen vegetables": { zone: "Frozen section — center back", confidence: "typical" },
+  "ice cream": { zone: "Frozen section — center back", confidence: "typical" },
+};
+
+const DEFAULT_STORES = {
+  store_1: { name: "My Safeway", size: "large", map: { ...DEFAULT_MAP } },
+};
+
+const systemPrompt = (store, storeMap) =>
+  `You are a grocery store assistant for a ${store.size === "small" ? "smaller neighborhood" : "full-size"} Safeway called "${store.name}".
+${store.size === "small" ? "Note: smaller store — some specialty sections may be limited or combined." : ""}
+
+Store map ("confirmed" = user-verified; "typical" = general Safeway convention; "custom" = user-added category):
+${JSON.stringify(storeMap, null, 2)}
+
+Rules:
+- Match the query to the closest key or category in the map
+- Prefer confirmed/custom entries over typical ones
+- Be concise — one short location description
+
+Respond ONLY as JSON, no markdown:
+{"aisle": "short location", "confidence": "confirmed|typical|guess", "note": "optional, omit if not useful"}`;
+
+const badge = (c) => ({
+  confirmed: { bg: "#2d6a4f", label: "✓ confirmed" },
+  custom:    { bg: "#7b4fa6", label: "★ custom" },
+  typical:   { bg: "#4a7fa5", label: "~ typical" },
+  guess:     { bg: "#888",    label: "? guess" },
+}[c] || { bg: "#888", label: "? guess" });
+
+function StoreModal({ stores, activeId, onSelect, onSave, onClose }) {
+  const [editId, setEditId] = useState(null);
+  const [draft, setDraft] = useState({});
+  const [newName, setNewName] = useState("");
+  const [newSize, setNewSize] = useState("large");
+  const [adding, setAdding] = useState(false);
+
+  const startEdit = (id) => { setEditId(id); setDraft({ name: stores[id].name, size: stores[id].size }); };
+  const saveEdit = () => { onSave(editId, draft.name, draft.size); setEditId(null); };
+  const addStore = () => {
+    if (!newName.trim()) return;
+    const id = "store_" + Date.now();
+    onSave(id, newName.trim(), newSize, true);
+    setNewName(""); setNewSize("large"); setAdding(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 6, width: "100%", maxWidth: 420, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden" }}>
+        <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 13, fontFamily: "monospace", letterSpacing: "0.12em", textTransform: "uppercase", color: "#555" }}>Your Stores</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, color: "#bbb", cursor: "pointer" }}>×</button>
+        </div>
+        <div style={{ padding: "12px 20px" }}>
+          {Object.entries(stores).map(([id, store]) => (
+            <div key={id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #f4f0ea" }}>
+              {editId === id ? (
+                <>
+                  <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                    style={{ flex: 1, border: "1px solid #ddd", borderRadius: 3, padding: "6px 10px", fontSize: 13, fontFamily: "Georgia, serif", outline: "none" }} />
+                  <select value={draft.size} onChange={(e) => setDraft({ ...draft, size: e.target.value })}
+                    style={{ border: "1px solid #ddd", borderRadius: 3, padding: "6px 8px", fontSize: 12, fontFamily: "monospace", outline: "none", background: "#fff" }}>
+                    <option value="large">large</option>
+                    <option value="small">small</option>
+                  </select>
+                  <button onClick={saveEdit} style={{ background: "#2d6a4f", color: "#fff", border: "none", borderRadius: 3, padding: "6px 12px", fontSize: 11, fontFamily: "monospace", cursor: "pointer" }}>SAVE</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => { onSelect(id); onClose(); }} style={{ flex: 1, background: "none", border: "none", textAlign: "left", cursor: "pointer", padding: 0 }}>
+                    <span style={{ fontSize: 15, fontFamily: "Georgia, serif", color: id === activeId ? "#c0392b" : "#1a1a1a" }}>
+                      {id === activeId ? "▸ " : "\u00a0\u00a0\u00a0"}{store.name}
+                    </span>
+                    <span style={{ marginLeft: 8, fontSize: 9, fontFamily: "monospace", color: "#bbb", background: "#f5f0e8", padding: "2px 6px", borderRadius: 8 }}>{store.size}</span>
+                  </button>
+                  <button onClick={() => startEdit(id)} style={{ background: "none", border: "1px solid #eee", borderRadius: 3, padding: "4px 10px", fontSize: 11, fontFamily: "monospace", color: "#aaa", cursor: "pointer" }}>edit</button>
+                </>
+              )}
+            </div>
+          ))}
+          {adding ? (
+            <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+              <input value={newName} onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addStore()}
+                placeholder="Store name…" autoFocus
+                style={{ flex: 1, border: "1px solid #ddd", borderRadius: 3, padding: "7px 10px", fontSize: 13, fontFamily: "Georgia, serif", outline: "none" }} />
+              <select value={newSize} onChange={(e) => setNewSize(e.target.value)}
+                style={{ border: "1px solid #ddd", borderRadius: 3, padding: "7px 8px", fontSize: 12, fontFamily: "monospace", outline: "none", background: "#fff" }}>
+                <option value="large">large</option>
+                <option value="small">small</option>
+              </select>
+              <button onClick={addStore} style={{ background: "#c0392b", color: "#fff", border: "none", borderRadius: 3, padding: "7px 12px", fontSize: 11, fontFamily: "monospace", cursor: "pointer" }}>ADD</button>
+            </div>
+          ) : (
+            <button onClick={() => setAdding(true)} style={{ marginTop: 12, background: "none", border: "1px dashed #ddd", borderRadius: 3, width: "100%", padding: "9px 0", fontSize: 12, fontFamily: "monospace", color: "#bbb", cursor: "pointer" }}>+ add another store</button>
+          )}
+        </div>
+        <div style={{ padding: "8px 20px 16px" }}>
+          <p style={{ fontSize: 10, fontFamily: "monospace", color: "#ccc", margin: 0, lineHeight: 1.6 }}>Each store has its own independent map.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddCategoryPanel({ onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [cat, setCat] = useState("");
+  const [loc, setLoc] = useState("");
+
+  const submit = () => {
+    if (!cat.trim() || !loc.trim()) return;
+    onAdd(cat.trim().toLowerCase(), loc.trim());
+    setCat(""); setLoc(""); setOpen(false);
+  };
+
+  return (
+    <div style={{ width: "100%", maxWidth: 500, marginTop: 20 }}>
+      {!open ? (
+        <button onClick={() => setOpen(true)} style={{
+          background: "none", border: "1.5px dashed #d0c8bc", borderRadius: 4,
+          width: "100%", padding: "11px 0", fontSize: 12, fontFamily: "monospace",
+          color: "#bbb", letterSpacing: "0.1em", cursor: "pointer",
+        }}>+ add custom category</button>
+      ) : (
+        <div style={{ background: "#fff", border: "1.5px solid #ddd", borderRadius: 4, padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 10, fontFamily: "monospace", color: "#bbb", letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 12 }}>Add custom category</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <input value={cat} onChange={(e) => setCat(e.target.value)}
+              placeholder="Category name  (e.g. vegan options, gluten-free, kombucha)"
+              style={{ border: "1px solid #ddd", borderRadius: 3, padding: "9px 12px", fontSize: 14, fontFamily: "Georgia, serif", outline: "none", color: "#1a1a1a" }} />
+            <input value={loc} onChange={(e) => setLoc(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              placeholder="Location  (e.g. Aisle 6, Natural foods end cap)"
+              style={{ border: "1px solid #ddd", borderRadius: 3, padding: "9px 12px", fontSize: 14, fontFamily: "Georgia, serif", outline: "none", color: "#1a1a1a" }} />
+            <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+              <button onClick={submit} disabled={!cat.trim() || !loc.trim()} style={{
+                flex: 1, background: "#7b4fa6", color: "#fff", border: "none",
+                borderRadius: 3, padding: "9px 0", fontSize: 11, fontFamily: "monospace",
+                letterSpacing: "0.1em", cursor: "pointer", opacity: (!cat.trim() || !loc.trim()) ? 0.4 : 1,
+              }}>★ SAVE TO THIS STORE</button>
+              <button onClick={() => { setOpen(false); setCat(""); setLoc(""); }} style={{
+                background: "#fff", color: "#aaa", border: "1px solid #ddd",
+                borderRadius: 3, padding: "9px 14px", fontSize: 11, fontFamily: "monospace", cursor: "pointer",
+              }}>cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SafewayFinder() {
+  const [stores, setStores] = useState(null);
+  const [activeId, setActiveId] = useState("store_1");
+  const [query, setQuery] = useState("");
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [correcting, setCorrecting] = useState(false);
+  const [correction, setCorrection] = useState("");
+  const [showMap, setShowMap] = useState(false);
+  const [tab, setTab] = useState("confirmed");
+  const [showModal, setShowModal] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [s, a] = await Promise.allSettled([window.storage.get(STORES_KEY), window.storage.get(ACTIVE_KEY)]);
+        const loadedStores = s.status === "fulfilled" && s.value?.value ? JSON.parse(s.value.value) : DEFAULT_STORES;
+        const loadedActive = a.status === "fulfilled" && a.value?.value ? a.value.value : Object.keys(loadedStores)[0];
+        setStores(loadedStores);
+        setActiveId(loadedActive);
+      } catch { setStores(DEFAULT_STORES); }
+    })();
+  }, []);
+
+  const persist = async (updatedStores, newActiveId) => {
+    setStores(updatedStores);
+    try {
+      await window.storage.set(STORES_KEY, JSON.stringify(updatedStores));
+      if (newActiveId) await window.storage.set(ACTIVE_KEY, newActiveId);
+    } catch (_) {}
+  };
+
+  const switchStore = (id) => { setActiveId(id); setResult(null); setQuery(""); window.storage.set(ACTIVE_KEY, id).catch(() => {}); };
+
+  const handleSaveStore = (id, name, size, isNew = false) => {
+    const updated = { ...stores };
+    updated[id] = isNew ? { name, size, map: { ...DEFAULT_MAP } } : { ...updated[id], name, size };
+    persist(updated, isNew ? id : undefined);
+    if (isNew) setActiveId(id);
+  };
+
+  const saveMap = async (updatedMap) => {
+    const updated = { ...stores, [activeId]: { ...stores[activeId], map: updatedMap } };
+    await persist(updated);
+  };
+
+  const handleAddCustom = async (cat, loc) => {
+    const updated = { ...stores[activeId].map, [cat]: { zone: loc, confidence: "custom" } };
+    await saveMap(updated);
+  };
+
+  const search = async () => {
+    if (!query.trim() || loading || !stores) return;
+    setLoading(true); setResult(null); setCorrecting(false);
+    const store = stores[activeId];
+    try {
+      const res = await fetch("/api/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system: systemPrompt(store, store.map),
+          messages: [{ role: "user", content: `Where is: ${query}` }],
+        }),
+      });
+      const data = await res.json();
+      const text = data.content?.find((b) => b.type === "text")?.text || "{}";
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      setResult({ item: query, ...parsed });
+    } catch {
+      setResult({ item: query, aisle: "Something went wrong", confidence: "guess" });
+    }
+    setLoading(false);
+  };
+
+  const confirm = async () => {
+    const updated = { ...stores[activeId].map, [result.item.toLowerCase()]: { zone: result.aisle, confidence: "confirmed" } };
+    await saveMap(updated);
+    setResult((r) => ({ ...r, confirmed: true }));
+  };
+
+  const submitCorrection = async () => {
+    if (!correction.trim()) return;
+    const updated = { ...stores[activeId].map, [result.item.toLowerCase()]: { zone: correction, confidence: "confirmed" } };
+    await saveMap(updated);
+    setResult((r) => ({ ...r, aisle: correction, confirmed: true, confidence: "confirmed" }));
+    setCorrecting(false); setCorrection("");
+  };
+
+  if (!stores) return <div style={{ minHeight: "100vh", background: "#f5f0e8", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "monospace", color: "#aaa" }}>Loading…</div>;
+
+  const activeStore = stores[activeId];
+  const storeMap = activeStore.map;
+  const confirmedEntries = Object.entries(storeMap).filter(([,v]) => v.confidence === "confirmed");
+  const customEntries    = Object.entries(storeMap).filter(([,v]) => v.confidence === "custom");
+  const typicalEntries   = Object.entries(storeMap).filter(([,v]) => v.confidence === "typical");
+  const tabEntries = { confirmed: confirmedEntries, custom: customEntries, typical: typicalEntries };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f5f0e8", fontFamily: "Georgia, 'Times New Roman', serif", display: "flex", flexDirection: "column", alignItems: "center", padding: "0 16px 80px" }}>
+
+      {showModal && <StoreModal stores={stores} activeId={activeId} onSelect={switchStore} onSave={handleSaveStore} onClose={() => setShowModal(false)} />}
+
+      <div style={{ width: "100%", maxWidth: 500, paddingTop: 44, paddingBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+          <span style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "#aaa", fontFamily: "monospace" }}>SAFEWAY</span>
+          <span style={{ color: "#ddd", fontSize: 10 }}>•</span>
+          <span style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c0392b", fontFamily: "monospace" }}>item finder</span>
+        </div>
+        <h1 style={{ fontSize: 30, fontWeight: "normal", margin: "0 0 10px", color: "#1a1a1a", letterSpacing: "-0.02em" }}>Where is it?</h1>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          {Object.entries(stores).map(([id, store]) => (
+            <button key={id} onClick={() => switchStore(id)} style={{
+              background: id === activeId ? "#1a1a1a" : "#fff",
+              color: id === activeId ? "#fff" : "#666",
+              border: id === activeId ? "1.5px solid #1a1a1a" : "1.5px solid #ddd",
+              borderRadius: 20, padding: "5px 14px", fontSize: 12, fontFamily: "monospace",
+              cursor: "pointer", display: "flex", alignItems: "center", gap: 6, transition: "all 0.12s",
+            }}>
+              {store.name}
+              <span style={{ fontSize: 9, background: id === activeId ? "rgba(255,255,255,0.2)" : "#f0ece4", color: id === activeId ? "rgba(255,255,255,0.8)" : "#bbb", padding: "1px 5px", borderRadius: 8 }}>{store.size}</span>
+            </button>
+          ))}
+          <button onClick={() => setShowModal(true)} style={{ background: "none", border: "1.5px dashed #ddd", borderRadius: 20, padding: "5px 12px", fontSize: 11, fontFamily: "monospace", color: "#ccc", cursor: "pointer" }}>⚙ manage</button>
+        </div>
+        <p style={{ fontSize: 11, color: "#bbb", marginTop: 8, fontFamily: "monospace" }}>
+          {confirmedEntries.length + customEntries.length > 0
+            ? `${confirmedEntries.length} confirmed · ${customEntries.length} custom · ${typicalEntries.length} defaults`
+            : `${typicalEntries.length} Safeway defaults loaded`}
+        </p>
+      </div>
+
+      <div style={{ width: "100%", maxWidth: 500 }}>
+        <div style={{ display: "flex", gap: 8, background: "#fff", border: "1.5px solid #ddd", borderRadius: 4, padding: "4px 4px 4px 14px", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
+          <input value={query} onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && search()}
+            placeholder={`search ${activeStore.name}…`}
+            style={{ flex: 1, border: "none", outline: "none", fontSize: 16, background: "transparent", color: "#1a1a1a", fontFamily: "Georgia, serif", padding: "8px 0" }} />
+          <button onClick={search} disabled={loading || !query.trim()} style={{
+            background: loading ? "#ddd" : "#c0392b", color: "#fff", border: "none",
+            borderRadius: 3, padding: "10px 18px", fontSize: 11, fontFamily: "monospace",
+            letterSpacing: "0.1em", cursor: loading ? "default" : "pointer",
+          }}>{loading ? "…" : "FIND"}</button>
+        </div>
+      </div>
+
+      {result && (
+        <div style={{ width: "100%", maxWidth: 500, marginTop: 14, background: "#fff", border: "1.5px solid #ddd", borderRadius: 4, padding: "20px 20px 16px", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, fontFamily: "monospace", color: "#bbb", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>{result.item}</div>
+              <div style={{ fontSize: 20, color: "#1a1a1a", lineHeight: 1.4 }}>{result.aisle}</div>
+              {result.note && <div style={{ fontSize: 11, color: "#bbb", marginTop: 5, fontFamily: "monospace" }}>{result.note}</div>}
+            </div>
+            <span style={{ background: badge(result.confirmed ? "confirmed" : result.confidence).bg, color: "#fff", fontSize: 10, fontFamily: "monospace", letterSpacing: "0.08em", padding: "4px 8px", borderRadius: 2, whiteSpace: "nowrap", marginTop: 2, flexShrink: 0 }}>
+              {badge(result.confirmed ? "confirmed" : result.confidence).label}
+            </span>
+          </div>
+          {!result.confirmed && !correcting && (
+            <div style={{ display: "flex", gap: 8, marginTop: 16, paddingTop: 14, borderTop: "1px solid #eee" }}>
+              <button onClick={confirm} style={{ flex: 1, background: "#2d6a4f", color: "#fff", border: "none", borderRadius: 3, padding: "9px 0", fontSize: 11, fontFamily: "monospace", letterSpacing: "0.1em", cursor: "pointer" }}>✓ CORRECT</button>
+              <button onClick={() => setCorrecting(true)} style={{ flex: 1, background: "#fff", color: "#888", border: "1px solid #ddd", borderRadius: 3, padding: "9px 0", fontSize: 11, fontFamily: "monospace", letterSpacing: "0.1em", cursor: "pointer" }}>✎ FIX IT</button>
+            </div>
+          )}
+          {correcting && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #eee" }}>
+              <div style={{ fontSize: 11, fontFamily: "monospace", color: "#aaa", marginBottom: 6 }}>What's the actual aisle?</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={correction} onChange={(e) => setCorrection(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && submitCorrection()}
+                  placeholder="e.g. Aisle 7" autoFocus
+                  style={{ flex: 1, border: "1px solid #ddd", borderRadius: 3, padding: "8px 10px", fontSize: 14, fontFamily: "Georgia, serif", outline: "none", color: "#1a1a1a" }} />
+                <button onClick={submitCorrection} style={{ background: "#c0392b", color: "#fff", border: "none", borderRadius: 3, padding: "8px 14px", fontSize: 11, fontFamily: "monospace", cursor: "pointer" }}>SAVE</button>
+              </div>
+            </div>
+          )}
+          {result.confirmed && <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #eee", fontSize: 11, fontFamily: "monospace", color: "#2d6a4f" }}>Saved to {activeStore.name}.</div>}
+        </div>
+      )}
+
+      <AddCategoryPanel onAdd={handleAddCustom} />
+
+      <div style={{ width: "100%", maxWidth: 500, marginTop: 24 }}>
+        <button onClick={() => setShowMap((v) => !v)} style={{ background: "none", border: "none", fontSize: 11, fontFamily: "monospace", color: "#ccc", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>
+          {showMap ? "▲ hide" : "▼ show"} {activeStore.name} map
+        </button>
+        {showMap && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ display: "flex", gap: 2, marginBottom: 8, flexWrap: "wrap" }}>
+              {[["confirmed", `✓ confirmed (${confirmedEntries.length})`], ["custom", `★ custom (${customEntries.length})`], ["typical", `~ defaults (${typicalEntries.length})`]].map(([key, label]) => (
+                <button key={key} onClick={() => setTab(key)} style={{
+                  background: tab === key ? "#1a1a1a" : "#fff",
+                  color: tab === key ? "#fff" : "#999",
+                  border: "1px solid #ddd", borderRadius: 3, padding: "5px 12px",
+                  fontSize: 11, fontFamily: "monospace", letterSpacing: "0.08em", cursor: "pointer",
+                }}>{label}</button>
+              ))}
+            </div>
+            <div style={{ border: "1px solid #e8e3d8", borderRadius: 4, overflow: "hidden", background: "#fff" }}>
+              {tabEntries[tab].sort(([a],[b]) => a.localeCompare(b)).map(([item, data], i) => (
+                <div key={item} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "8px 14px", gap: 12, background: i % 2 === 0 ? "#fff" : "#faf8f5", borderBottom: "1px solid #f0ece4", fontSize: 12, fontFamily: "monospace" }}>
+                  <span style={{ color: "#555", flexShrink: 0 }}>{item}</span>
+                  <span style={{ color: "#aaa", textAlign: "right" }}>{data.zone}</span>
+                </div>
+              ))}
+              {tabEntries[tab].length === 0 && (
+                <div style={{ padding: "16px 14px", color: "#ccc", fontSize: 12, fontFamily: "monospace" }}>
+                  {tab === "confirmed" ? "No confirmed aisles yet." : tab === "custom" ? "No custom categories yet." : "No defaults."}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<SafewayFinder />);
+</script>
+</body>
+</html>
